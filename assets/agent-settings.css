@@ -1,0 +1,26 @@
+/* 复用原型的外观变量，配置表单在窄屏按单列展示。 */
+.agent-notice{padding:15px 18px;border:1px solid var(--line);border-radius:8px;background:var(--tint);font-size:12px;margin-bottom:22px}
+.agent-layout{display:grid;grid-template-columns:minmax(220px,.7fr) minmax(0,2fr);gap:22px;align-items:start}
+.agent-layout>*{min-width:0}
+.agent-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:15px;flex-wrap:wrap}
+.agent-tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:3px 8px;border-radius:4px}
+.agent-profiles .small{font-size:12px;overflow-wrap:anywhere}
+.agent-profile{border-top:1px solid var(--line);padding-top:18px;margin-top:18px;overflow-wrap:anywhere}
+.agent-profile h3{font-weight:500;margin-bottom:5px}
+.agent-profile p{font-size:12px;color:var(--muted);margin-bottom:8px}
+.agent-profile button{font-size:12px}
+.agent-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 18px}
+.agent-fields label{display:flex;flex-direction:column;gap:7px;font-size:12px;min-width:0}
+.agent-fields input:not([type=checkbox]),.agent-fields select{width:100%;min-width:0;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);padding:10px 12px;min-height:44px}
+.agent-fields small,.agent-fields .small{font-size:11px;color:var(--muted);line-height:1.7}
+.agent-wide{grid-column:1/-1;min-width:0}
+.agent-key-row{display:flex;gap:9px;margin:7px 0}
+.agent-key-row input{flex:1}
+.agent-key-row button{flex-shrink:0}
+.agent-endpoint{background:var(--bg);padding:12px;border-radius:5px;display:grid;gap:6px;font-size:11px;color:var(--muted)}
+.agent-endpoint code{overflow-wrap:anywhere;white-space:normal;color:var(--ink)}
+.agent-fields .agent-checkbox{flex-direction:row;align-items:center;gap:9px}
+.agent-error{color:var(--amber);font-size:12px;margin-top:18px}
+.agent-form-actions{margin-top:20px}
+@media(max-width:1000px){.agent-layout{grid-template-columns:1fr}}
+@media(max-width:650px){.nav{flex-wrap:wrap}.agent-fields{grid-template-columns:1fr}.agent-heading h2{font-size:21px}.agent-layout{gap:16px}}
