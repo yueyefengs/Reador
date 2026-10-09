@@ -84,6 +84,8 @@ FSRS 使用固定 `ts-fsrs@5.4.2`，开启库默认学习步骤并关闭 fuzz，
 
 本机使用 Compose PostgreSQL 命名卷及私有文件目录。数据库迁移自动执行；开发时也可单独运行迁移。上传目录权限通过本机 UID / GID 映射处理。
 
+`.github/workflows/publish-image.yml` 在推送 tag 时校验对应提交已进入 `main`，再使用现有 Dockerfile 构建 amd64 / arm64 镜像并发布到 GHCR。`compose.production.yaml` 提供拉取镜像的独立服务端配置，数据库与本地原书使用命名卷，运行时从 `.env.production` 注入配置；不自动更新远程服务器。具体发布、权限与恢复流程见 [服务端部署指南](deployment.md)，真实发布及部署验收仍需在 GitHub 和目标服务器执行。
+
 尚未实现邮件验证、密码找回、OCR、PDF 原版式、语义检索、跨批次概念合并、已就绪原书重新解析 / 来源重定位，以及公网运维设施。Linux 公网部署须另行配置 HTTPS、反向代理、可信 `APP_ORIGIN`、安全 Cookie、注册策略、容量和备份，不宣称当前本机验收覆盖这些能力。
 
 预设来源（2026-10-08）：[OpenAI 官方快速入门](https://developers.openai.com/api/docs/quickstart)、[Claude API 总览](https://platform.claude.com/docs/en/api/overview)、[智谱 OpenAI 兼容](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)、[DeepSeek 首次调用](https://api-docs.deepseek.com/zh-cn/)。实际模型可用性以账户权限和连接测试为准。

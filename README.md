@@ -39,6 +39,12 @@ docker compose --env-file .env.local logs --tail=80 app
 
 默认仅绑定本机：应用端口 `3112`，数据库端口 `5433`。如修改端口，同时更新 `.env.local` 中的 `APP_PORT` 和 `APP_ORIGIN`。本次使用 3112 是为了避开本机已有服务。
 
+## Tag 发布镜像与服务端部署
+
+推送指向 `main` 中提交的 Git tag 后，GitHub Actions 自动构建 amd64 / arm64 镜像并推送到 `ghcr.io/yueyefengs/reador:<tag>`，例如 `ghcr.io/yueyefengs/reador:v0.1.0`。使用 GitHub 自带令牌发布，无需额外配置 Registry 密钥；私有镜像的服务端拉取需要登录 GHCR。
+
+服务端使用 `compose.production.yaml` 与 `.env.production.example` 拉取已构建镜像，数据库和原书使用独立命名卷，启动时自动迁移。完整的打 tag、权限配置、首次部署与更新步骤见 [服务端部署指南](docs/deployment.md)。
+
 ## 开发运行：Node.js 应用 + Docker PostgreSQL
 
 ```bash
