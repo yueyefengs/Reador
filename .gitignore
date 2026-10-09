@@ -27,3 +27,6 @@ test-results/
 /uploads/
 /storage/
 /data/
+
+# 独立集成测试构建
+.next-integration/

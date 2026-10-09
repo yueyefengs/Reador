@@ -15,14 +15,16 @@ Reador 是 AI 辅助阅读与学习助手。围绕用户提供的一本书，形
 
 ## 当前状态与文档
 
-- 项目已有本地交互原型，尚未实现真实 AI、解析、持久化或复习调度服务。
+- 项目已实现 Next.js / TypeScript 多用户应用，采用 PostgreSQL / Drizzle、Docker Compose、PDF / EPUB 解析、服务端模型适配及真实 FSRS；支持服务端环境模型与七牛加密对象存储；真实验证结果及当前外部配置限制见 `docs/application-verification.md`，不能用本地模拟代替真实模型与存储验收。
+- `src/`：正式应用；`drizzle/`：有序迁移；`tests/`：核心与独立 PostgreSQL 集成检查。
+- `README.md` 与 `docs/architecture.md` 记录实际运行方式和首版边界，历史原型不是正式入口。
 - `dashboard.html` / `reader.html`：无需安装依赖的示例原型；可用浏览器直接打开。
 - `assets/book-graph.js` / `assets/book-graph.css`：书库和 Mermaid 图谱原型；`assets/vendor/` 保留本地固定渲染依赖。
 - `README.md`：项目入口、当前状态与实施顺序。
 - `docs/product.md`：产品流程、首版边界与验收标准。
 - `docs/architecture.md`：技术建议、数据结构与实现约束。
 - `docs/references.md`：Learny 与 Tutor 的固定版本研究、借鉴选择与代码证据。
-- `docs/book-concept-agent.md` / `prompts/book-concept-agent.md`：书库到概念图的 Agent 设计和提示词草案，服务端尚未实现。
+- `docs/book-concept-agent.md` / `prompts/book-concept-agent.md`：书库到概念图的 Agent 设计和提示词草案，保留完整设计；实际实现与尚未完成部分以架构文档为准。
 - `skills/mermaid-visualizer/`：用户指定的上游 skill 原文、许可证与固定来源；提供图表规则，不是解析或模型服务。
 - 文档中的建议不代表已经实现；新增代码后同步更新现状和运行说明。
 - 接手任务时先阅读相关代码与文档。不存在的命令、接口和测试结果不得虚构。

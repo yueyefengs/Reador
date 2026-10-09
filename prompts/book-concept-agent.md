@@ -1,6 +1,6 @@
 # 书籍概念抽取提示词草案
 
-状态：供后续模型适配层实现和固定样例评估使用；当前 HTML 原型不调用此提示词。输入输出约定见 [Agent 设计](../docs/book-concept-agent.md)。
+状态：供后续模型适配层实现和固定样例评估使用；历史 HTML 原型不调用此提示词。正式应用在 `src/modules/ai/provider.ts` 与任务执行器中构造运行时规则、JSON schema 及原文输入；此文件保留为设计参考，并非独立可执行的 Agent。输入输出约定见 [Agent 设计](../docs/book-concept-agent.md)。
 
 ## 系统规则
 
