@@ -5,6 +5,7 @@ import type { Book,Chapter,Artifact,Job } from './types';
 import type { Citation } from '../lib/schema';
 import { graphSchema } from '../modules/ai/validation';
 import Graph from './Graph';
+import KnowledgePanel from './KnowledgePanel';
 const statusLabel:Record<string,string>={queued:'等待生成',running:'正在生成',ready:'已完成',partial:'部分完成',failed:'生成失败',cancelled:'已取消'};
 export default function GraphHub({books,bookId,detailId,timezone,onBook,onOpen,onCitation,onGenerate}:{books:Book[];bookId:string;detailId:string|null;timezone:string;onBook:(id:string)=>void;onOpen:(id:string|null)=>void;onCitation:(citation:Citation)=>void;onGenerate:(kind:string,ids:string[])=>Promise<void>}){
   const [artifacts,setArtifacts]=useState<Artifact[]>([]),[jobs,setJobs]=useState<Job[]>([]),[chapters,setChapters]=useState<Chapter[]>([]),[scope,setScope]=useState('all'),[batch,setBatch]=useState('overview'),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState('');
@@ -36,6 +37,7 @@ export default function GraphHub({books,bookId,detailId,timezone,onBook,onOpen,o
         {loading?<p className="empty">正在载入图谱…</p>:visible.length?<div className="graph-card-grid">{visible.map(card)}</div>:<p className="empty">{bookId?'还没有概念图，展开“新建概念图”开始。':'选择一本书，查看它的概念图。'}</p>}
         {history.length>0&&<details className="graph-history"><summary>历史操作记录 · {history.length}</summary><div className="graph-card-grid">{history.map(card)}</div></details>}
       </section>
+      {bookId&&<KnowledgePanel key={bookId} bookId={bookId} onCitation={onCitation}/>}
     </>:loading?<p className="empty">正在载入图谱…</p>:!job&&!selected?<section className="panel"><p className="empty">该图谱不存在，或不属于当前书籍。</p></section>:<section className="panel graph-detail">
       <div className="row spread"><div><h2>{job?scopeName(job)+'概念图':'概念图'}</h2><p className="muted small">{job&&<>{statusLabel[job.status]||job.status} · {job.completed} / {job.total} 批完成</>}</p></div><div className="row">{job&&['partial','failed'].includes(job.status)&&<button disabled={busy} onClick={()=>void action(()=>post('jobs/'+job.id+'/retry'))}>{busy?'正在提交…':'重试失败批次'}</button>}{job&&['queued','running'].includes(job.status)&&<button className="outline" disabled={busy} onClick={()=>void action(()=>post('jobs/'+job.id+'/cancel'))}>取消生成</button>}</div></div>
       {job&&['queued','running'].includes(job.status)&&<progress aria-label="图谱生成进度" max={Math.max(1,job.total)} value={job.completed}/>}

@@ -75,7 +75,7 @@ describe('模型输出预算与诊断',()=>{
 
 describe('图谱引用有限重生成',()=>{
  const source={id:randomUUID(),text:'观察和评价应当分开。先陈述观察，再表达感受。'};
- const graph=(sourceId=source.id,quote='观察和评价应当分开')=>({nodes:[{id:'observation',label:'观察',definition:'先陈述观察',citations:[{sourceId,quote}]}],edges:[],warnings:[]});
+ const graph=(sourceId=source.id,quote='观察和评价应当分开')=>({nodes:[{id:'observation',label:'观察',definition:'先陈述观察',kind:'conceptual',masteryCriteria:[{text:'能够区分观察与评价',citations:[{sourceId:source.id,quote:'观察和评价应当分开'}]}],citations:[{sourceId,quote}]}],edges:[],warnings:[]});
  it('引用失配时仅重生成一次，仍严格验证并保留原范围',async()=>{
   modelRequest.mockResolvedValueOnce(response(envelope(JSON.stringify(graph(source.id,'被改写的摘录'))))).mockResolvedValueOnce(response(envelope(JSON.stringify(graph()))));
   expect((await generateGraph(config(),[source])).nodes).toHaveLength(1);expect(modelRequest).toHaveBeenCalledTimes(2);

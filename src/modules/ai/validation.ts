@@ -3,9 +3,15 @@ import type { Rubric } from '../../lib/schema';
 import { assert,AppError } from '../../lib/errors';
 export const citationSchema=z.object({sourceId:z.uuid(),quote:z.string().min(2).max(600)}).strict();
 const citations=z.array(citationSchema).min(1).max(8);
-export const graphSchema=z.object({nodes:z.array(z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().min(1).max(60),definition:z.string().min(1).max(600),citations}).strict()).max(12),edges:z.array(z.object({source:z.string(),target:z.string(),type:z.enum(['is_a','part_of','contrasts_with','requires','causes','supports','followed_by','tests']),label:z.string().min(1).max(50),citations}).strict()).max(20),warnings:z.array(z.string().max(300)).max(10)}).strict();
+export const conceptKindSchema=z.enum(['conceptual','procedural','representational','language','meta']);
+export const masteryCriterionSchema=z.object({text:z.string().trim().min(2).max(300),citations}).strict();
+export const knowledgeConceptSchema=z.object({label:z.string().trim().min(1).max(60),definition:z.string().trim().min(1).max(600),kind:conceptKindSchema,masteryCriteria:z.array(masteryCriterionSchema).min(1).max(5),citations}).strict();
+// 旧图谱保留原样可读；新增生成使用下方更严格的知识点结构。
+export const graphSchema=z.object({nodes:z.array(z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().min(1).max(60),definition:z.string().min(1).max(600),citations,conceptId:z.uuid().optional(),kind:conceptKindSchema.optional(),masteryCriteria:z.array(masteryCriterionSchema).max(5).optional()}).strict()).max(12),edges:z.array(z.object({source:z.string(),target:z.string(),type:z.enum(['is_a','part_of','contrasts_with','requires','causes','supports','followed_by','tests']),label:z.string().min(1).max(50),strength:z.enum(['hard','soft']).optional(),citations}).strict()).max(20),warnings:z.array(z.string().max(300)).max(10)}).strict();
+export const learningGraphSchema=graphSchema.extend({nodes:z.array(knowledgeConceptSchema.extend({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/)})).max(12)});
 export const summarySchema=z.object({items:z.array(z.object({title:z.string().min(1).max(100),text:z.string().min(1).max(1800),citations}).strict()).min(1).max(8)}).strict();
 export const questionSchema=z.object({questions:z.array(z.object({goal:z.string().min(1).max(200),prompt:z.string().min(5).max(1500),answer:z.string().min(5).max(2400),rubric:z.array(z.object({point:z.string().min(1).max(400),weight:z.number().int().min(1).max(100)}).strict()).min(1).max(8),citations}).strict()).min(1).max(3)}).strict();
+export const learningQuestionSchema=z.object({questions:z.array(questionSchema.shape.questions.element.extend({conceptId:z.uuid().nullable(),concept:knowledgeConceptSchema})).min(1).max(3)}).strict();
 export const replySchema=z.object({answer:z.string().min(1).max(8000),insufficient:z.boolean(),citations:z.array(citationSchema).max(8)}).strict().refine(result=>result.insufficient||result.citations.length>0,{message:'有事实结论时必须附原文引用'});
 export const assessmentSchema=z.object({points:z.array(z.object({index:z.number().int().min(0),earned:z.number().min(0).max(100),feedback:z.string().min(1).max(700)}).strict()).min(1).max(8),feedback:z.string().min(1).max(3000),recommendation:z.enum(['Again','Hard','Good','Easy']),citations}).strict();
 export type Source={id:string;text:string};
@@ -25,7 +31,14 @@ export function validateCitations(data:unknown,sources:Source[]){
   }
   visit(data,'');if(issues.length)throw new CitationValidationError(issues);
 }
-export function validateGraph(graph:z.infer<typeof graphSchema>){const ids=new Set(graph.nodes.map(node=>node.id));assert(ids.size===graph.nodes.length,422,'图谱概念 ID 重复');graph.edges.forEach(edge=>assert(ids.has(edge.source)&&ids.has(edge.target)&&edge.source!==edge.target,422,'概念关系端点无效'))}
+export function validateGraph(graph:z.infer<typeof graphSchema>){const ids=new Set(graph.nodes.map(node=>node.id));assert(ids.size===graph.nodes.length,422,'图谱概念 ID 重复');graph.edges.forEach(edge=>assert(ids.has(edge.source)&&ids.has(edge.target)&&edge.source!==edge.target,422,'概念关系端点无效'));assert(!hasPrerequisiteCycle(graph.edges.filter(edge=>edge.type==='requires').map(edge=>({conceptId:edge.source,prerequisiteId:edge.target}))),422,'先修关系不能形成循环')}
+export function hasPrerequisiteCycle(edges:{conceptId:string;prerequisiteId:string}[]){
+  const next=new Map<string,string[]>(),indegree=new Map<string,number>();
+  for(const edge of edges){next.set(edge.conceptId,[...(next.get(edge.conceptId)||[]),edge.prerequisiteId]);indegree.set(edge.conceptId,indegree.get(edge.conceptId)||0);indegree.set(edge.prerequisiteId,(indegree.get(edge.prerequisiteId)||0)+1)}
+  const queue=[...indegree].filter(([,count])=>count===0).map(([id])=>id);let visited=0;
+  while(queue.length){const id=queue.pop()!;visited++;for(const target of next.get(id)||[]){const count=indegree.get(target)!-1;indegree.set(target,count);if(count===0)queue.push(target)}}
+  return visited!==indegree.size;
+}
 export function validateRubric(rubric:Rubric[]){assert(rubric.reduce((sum,item)=>sum+item.weight,0)===100,422,'题目评分要点权重之和必须为 100')}
 export function assess(data:z.infer<typeof assessmentSchema>,rubric:Rubric[]){
   assert(data.points.length===rubric.length,422,'评分要点不完整');const indices=new Set<number>();let score=0;

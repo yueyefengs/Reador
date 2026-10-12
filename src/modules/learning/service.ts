@@ -6,6 +6,7 @@ import { environmentAgent } from '../ai/environment';
 import { callModel } from '../ai/provider';
 import { assessmentSchema,assess,questionSchema,validateRubric } from '../ai/validation';
 import { nextSchedule } from './scheduler';
+import { ownedConcept,remedialRecommendations } from '../knowledge/service';
 export async function defaultAgent(ownerId:string,agentId?:string){const [agent]=await db.select().from(agents).where(and(eq(agents.ownerId,ownerId),agentId?eq(agents.id,agentId):eq(agents.isDefault,true)));if(agent)return agent;if(agentId)assert(false,404,'Agent 配置不存在');const [user]=await db.select({email:users.email}).from(users).where(eq(users.id,ownerId));assert(user,401,'请先登录');return environmentAgent(user.email)}
 export async function ownedCard(ownerId:string,cardId:string){const [card]=await db.select().from(reviewCards).where(and(eq(reviewCards.id,cardId),eq(reviewCards.ownerId,ownerId)));assert(card,404,'复习卡不存在');return card}
 export async function ownedAttempt(ownerId:string,id:string){const [attempt]=await db.select().from(attempts).where(and(eq(attempts.id,id),eq(attempts.ownerId,ownerId)));assert(attempt,404,'作答记录不存在');return attempt}
@@ -60,11 +61,19 @@ export async function rateAttempt(ownerId:string,id:string,rating:'Again'|'Hard'
     await tx.update(attempts).set({ratedAt:now}).where(eq(attempts.id,id));return log;
   });
 }
-export async function remedy(ownerId:string,id:string){const attempt=await ownedAttempt(ownerId,id);assert(attempt.assessment,422,'请先完成本轮评分');const [existing]=await db.select().from(questions).where(and(eq(questions.ownerId,ownerId),eq(questions.remedyOf,id)));if(existing)return existing;
+export async function remedy(ownerId:string,id:string,targetConceptId?:string){const attempt=await ownedAttempt(ownerId,id);assert(attempt.assessment,422,'请先完成本轮评分');
   const [question]=await db.select().from(questions).where(and(eq(questions.id,attempt.questionId),eq(questions.ownerId,ownerId)));assert(question,404,'题目不存在');
-  const text=await questionSources(ownerId,question),agent=await defaultAgent(ownerId);
-  const data=await callModel(agent,'针对同一 goal 换一种情境出 1 道题，不能改变知识目标。rubric 权重之和必须为 100。',questionSchema,{sources:text.map(source=>({sourceId:source.id,text:source.text})),goal:question.goal,previousPrompt:question.prompt,feedback:attempt.assessment.feedback},text);
-  const item=data.questions[0];validateRubric(item.rubric);const [result]=await db.insert(questions).values({ownerId,bookId:question.bookId,...item,goal:question.goal,remedyOf:id}).onConflictDoNothing().returning();return result||(await db.select().from(questions).where(and(eq(questions.ownerId,ownerId),eq(questions.remedyOf,id))))[0];
+  const conceptId=targetConceptId||question.conceptId;
+  const predicate=and(eq(questions.ownerId,ownerId),eq(questions.remedyOf,id),conceptId?eq(questions.conceptId,conceptId):sql`${questions.conceptId} is null`);
+  const [existing]=await db.select().from(questions).where(predicate);if(existing)return existing;
+  if(targetConceptId&&targetConceptId!==question.conceptId){const recommendations=await remedialRecommendations(ownerId,id);assert(recommendations.some(item=>item.concept.id===targetConceptId),422,'只能针对本题有依据的先修知识点补救')}
+  const concept=conceptId?await ownedConcept(ownerId,question.bookId,conceptId):null;
+  const changed=conceptId!==question.conceptId,goal=changed?concept!.label:question.goal;
+  const citations=changed&&concept?[...concept.citations,...concept.masteryCriteria.flatMap(criterion=>criterion.citations)]:question.citations;
+  const text=await questionSources(ownerId,{...question,citations}),agent=await defaultAgent(ownerId);
+  const masteryCriteria=concept?.masteryCriteria.map(criterion=>({...criterion,citations:criterion.citations.filter(citation=>text.some(source=>source.id===citation.sourceId))})).filter(criterion=>criterion.citations.length);
+  const data=await callModel(agent,'针对同一 goal 换一种情境出 1 道题，不能改变知识目标。rubric 权重之和必须为 100。若提供 masteryCriteria，按其行为要求设计题目与评分点，只依据给定原文。这是即时补救，不判断长期掌握。',questionSchema,{sources:text.map(source=>({sourceId:source.id,text:source.text})),goal,masteryCriteria,previousPrompt:question.prompt,feedback:attempt.assessment.feedback},text);
+  const item=data.questions[0];validateRubric(item.rubric);const [result]=await db.insert(questions).values({ownerId,bookId:question.bookId,...item,goal,conceptId,remedyOf:id}).onConflictDoNothing().returning();return result||(await db.select().from(questions).where(predicate))[0];
 }
-export function safeQuestion(question:typeof questions.$inferSelect){return {id:question.id,goal:question.goal,prompt:question.prompt,remedy:!!question.remedyOf}}
+export function safeQuestion(question:typeof questions.$inferSelect){return {id:question.id,goal:question.goal,prompt:question.prompt,conceptId:question.conceptId,remedy:!!question.remedyOf}}
 export async function correctAttempt(ownerId:string,id:string,score:number,reason:string){const attempt=await ownedAttempt(ownerId,id);assert(attempt.assessment,422,'尚无评分');assert(!attempt.ratedAt,409,'评级已提交，不能追溯修改排期');const original:Assessment=attempt.correction?.original||attempt.assessment;const [row]=await db.update(attempts).set({correction:{original,score,reason,at:new Date().toISOString()},assessment:{...attempt.assessment,score,recommendation:score<60?'Again':attempt.assessment.recommendation}}).where(and(eq(attempts.id,id),sql`${attempts.ratedAt} is null`)).returning();assert(row,409,'评级已提交，修改未保存');return row}

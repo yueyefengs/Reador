@@ -50,6 +50,13 @@
       "when": 1791451493849,
       "tag": "0006_glossy_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791773025799,
+      "tag": "0007_first_khan",
+      "breakpoints": true
     }
   ]
 }

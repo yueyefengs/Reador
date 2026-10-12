@@ -8,7 +8,9 @@ import { upgradeStructure } from '../books/upgrade';
 import { readStoredFile,sealFile } from '../../lib/storage';
 import { callModel,ModelOutputError } from '../ai/provider';
 import { generateGraph } from '../ai/graph';
-import { summarySchema,questionSchema,validateRubric } from '../ai/validation';
+import { generateQuestions } from '../ai/questions';
+import { summarySchema,questionSchema,learningQuestionSchema,validateRubric,validateCitations } from '../ai/validation';
+import { lockConceptBook,saveConcept,registerGraph,conceptCandidates } from '../knowledge/service';
 import { createEmptyCard } from 'ts-fsrs';
 import { AppError,assert } from '../../lib/errors';
 type Job=typeof jobs.$inferSelect;
@@ -69,9 +71,9 @@ export async function processJob(job:Job){
           const ordered=ids.map(id=>text.find(source=>source.id===id)!);
           const input={sources:ordered.map(source=>({sourceId:source.id,text:source.text}))};
           let data:unknown;
-          if(job.kind==='graph')data=await generateGraph(job.agentSnapshot,ordered,controller.signal);
+          if(job.kind==='graph')data=await generateGraph(job.agentSnapshot,ordered,controller.signal,await conceptCandidates(job.ownerId,job.bookId,ids));
           else if(job.kind==='summary')data=await callModel(job.agentSnapshot,'总结本批原文的主旨、概念与易混淆点，每个条目附来源。不要假设覆盖本章或全书。',summarySchema,input,text,controller.signal);
-          else{data=await callModel(job.agentSnapshot,'为本批原文生成 1 到 3 道简答题。goal 是可独立检测的知识目标；rubric 权重合计必须为 100；附参考答案与引用。',questionSchema,input,text,controller.signal);(data as ReturnType<typeof questionSchema.parse>).questions.forEach(question=>validateRubric(question.rubric))}
+          else data=await generateQuestions(job.agentSnapshot,ordered,await conceptCandidates(job.ownerId,job.bookId,ids),controller.signal);
           job.results.push({batch,data});job.errors=job.errors.filter(item=>item.batch!==batch);consecutiveOutputErrors=0;
         }catch(error){if(controller.signal.aborted)throw error;outputError=error instanceof ModelOutputError;consecutiveOutputErrors=outputError?consecutiveOutputErrors+1:0;job.errors=job.errors.filter(item=>item.batch!==batch);job.errors.push({batch,message:error instanceof AppError?error.message:'本批处理失败，请重试'});}
         const [saved]=await db.update(jobs).set({results:job.results,errors:job.errors}).where(guard()).returning({id:jobs.id});if(!saved){cancelled=true;break}
@@ -83,17 +85,33 @@ export async function processJob(job:Job){
     await db.transaction(async tx=>{
       await tx.execute(sql`select id from jobs where id=${job.id} for update`);
       const [current]=await tx.select().from(jobs).where(eq(jobs.id,job.id));if(current.status!=='running'||current.token!==job.token)return;
+      const scope={ownerId:job.ownerId,bookId:job.bookId,jobId:job.id};
+      if(['graph','questions'].includes(job.kind))await lockConceptBook(tx,scope);
+      if(job.kind==='graph')for(const result of job.results){
+        const ids=job.sourceBatches[result.batch];assert(ids,422,'知识点批次范围无效');
+        const allowed=await tx.select().from(sources).where(and(eq(sources.ownerId,job.ownerId),eq(sources.bookId,job.bookId),inArray(sources.id,ids)));
+        assert(allowed.length===ids.length,422,'任务原文范围已变化');
+        result.data=await registerGraph(tx,scope,result.batch,result.data,allowed);
+      }
       if(job.kind!=='parse'&&job.results.length){
         const [artifact]=await tx.insert(artifacts).values({ownerId:job.ownerId,bookId:job.bookId,jobId:job.id,kind:job.kind,data:job.results}).onConflictDoNothing().returning();
         if(!artifact)await tx.update(artifacts).set({data:job.results}).where(eq(artifacts.jobId,job.id));
         if(job.kind==='questions'){
           // 每一知识目标单独建卡，任务重试保留已有卡片与调度。
           const prior=await tx.select().from(questions).where(eq(questions.jobId,job.id));
-          for(const result of job.results){for(const [index,item] of (result.data as ReturnType<typeof questionSchema.parse>).questions.entries()){
+          for(const result of job.results){
+            const ids=job.sourceBatches[result.batch];assert(ids,422,'题目批次范围无效');
+            const allowed=await tx.select().from(sources).where(and(eq(sources.ownerId,job.ownerId),eq(sources.bookId,job.bookId),inArray(sources.id,ids)));
+            assert(allowed.length===ids.length,422,'任务原文范围已变化');validateCitations(result.data,allowed);
+            const extended=learningQuestionSchema.safeParse(result.data);
+            const items=extended.success?extended.data.questions:questionSchema.parse(result.data).questions;
+            for(const [index,entry] of items.entries()){
             const marker=`${result.batch}:${index}`;
             const questionId=randomUUID();
             if(prior.some(question=>question.batchKey===marker))continue;
-            const [question]=await tx.insert(questions).values({id:questionId,ownerId:job.ownerId,bookId:job.bookId,jobId:job.id,...item,batchKey:marker}).returning();
+            const {concept,conceptId:requestedId,...item}=entry as typeof entry&{concept?:unknown;conceptId?:string|null};validateRubric(item.rubric);
+            const conceptId=concept?await saveConcept(tx,scope,`question:${marker}`,concept,allowed,requestedId):null;
+            const [question]=await tx.insert(questions).values({id:questionId,ownerId:job.ownerId,bookId:job.bookId,jobId:job.id,...item,conceptId,batchKey:marker}).returning();
             const now=new Date();await tx.insert(reviewCards).values({ownerId:job.ownerId,bookId:job.bookId,questionId:question.id,schedule:createEmptyCard(now),dueAt:now});
           }}
         }

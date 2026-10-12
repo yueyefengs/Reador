@@ -13,12 +13,13 @@ import { presets,agentInput,validateBase,callModel } from '../../../modules/ai/p
 import { environmentModels,environmentAgent } from '../../../modules/ai/environment';
 import { replySchema } from '../../../modules/ai/validation';
 import { defaultAgent,ownedCard,ownedAttempt,submitAttempt,gradeAttempt,rateAttempt,remedy,safeQuestion,correctAttempt,startAttempt,markAssistance } from '../../../modules/learning/service';
+import { bookKnowledge,remedialRecommendations } from '../../../modules/knowledge/service';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 const {storagePath:privateStoragePath,hash:privateHash,coverCipher:privateCoverCipher,...publicBookColumns}=getTableColumns(books);
 const uuid=z.uuid(),key=z.string().min(8).max(120),rating=z.enum(['Again','Hard','Good','Easy']);
 async function body(request:Request,limit=1024*1024){const reader=request.body?.getReader();if(!reader)return new Uint8Array();let size=0;const chunks:Uint8Array[]=[];while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();throw new AppError(413,'请求内容超过限制')}chunks.push(value)}return Buffer.concat(chunks)}
-async function json(request:Request){try{return JSON.parse(Buffer.from(await body(request)).toString())}catch(error){if(error instanceof AppError)throw error;throw new AppError(400,'请求 JSON 无效')}}
+async function json(request:Request,allowEmpty=false){try{const bytes=await body(request);return allowEmpty&&!bytes.length?{}:JSON.parse(Buffer.from(bytes).toString())}catch(error){if(error instanceof AppError)throw error;throw new AppError(400,'请求 JSON 无效')}}
 const safeAgent=(agent:typeof agents.$inferSelect)=>{const {keyCipher,...rest}=agent;return {...rest,hasKey:!!keyCipher}};
 const safeJob=(job:typeof jobs.$inferSelect)=>{const {agentSnapshot,token,results,sourceBatches,...rest}=job;return {...rest,total:sourceBatches.length,completed:results.length,coverage:sourceBatches.filter((_,index)=>results.some(result=>result.batch===index)).flat()}};
 async function handle(request:Request,{params}:{params:Promise<{path:string[]}>}){
@@ -71,6 +72,7 @@ async function handle(request:Request,{params}:{params:Promise<{path:string[]}>}
   if(path[0]==='sources'&&path[1]&&method==='GET'){const [source]=await db.select().from(sources).where(and(eq(sources.id,uuid.parse(path[1])),eq(sources.ownerId,ownerId)));assert(source,404,'原文片段不存在');await markAssistance(ownerId,source.bookId);return source;}
   if(path[0]==='books'&&path[1]){
     const bookId=uuid.parse(path[1]),book=await ownedBook(ownerId,bookId);
+    if(path[2]==='concepts'&&path.length===3&&method==='GET'){await markAssistance(ownerId,bookId);return bookKnowledge(ownerId,bookId)}
     if(path.length===2&&method==='GET'){
       const catalog=await db.select().from(chapters).where(and(eq(chapters.ownerId,ownerId),eq(chapters.bookId,bookId),eq(chapters.active,true))).orderBy(asc(chapters.position));
       const [saved]=await db.select().from(progress).where(and(eq(progress.ownerId,ownerId),eq(progress.bookId,bookId)));
@@ -114,11 +116,13 @@ async function handle(request:Request,{params}:{params:Promise<{path:string[]}>}
     if(path.length===1&&method==='GET')return db.select().from(attempts).where(eq(attempts.ownerId,ownerId)).orderBy(desc(attempts.createdAt)).limit(100);
     const id=uuid.parse(path[1]);const attempt=await ownedAttempt(ownerId,id);
     if(path.length===2&&method==='GET')return attempt;
+    if(path[2]==='question'&&method==='GET'){const [question]=await db.select().from(questions).where(and(eq(questions.id,attempt.questionId),eq(questions.ownerId,ownerId),eq(questions.bookId,attempt.bookId)));assert(question,404,'题目不存在');return safeQuestion(question);}
     if(path[2]==='grade'&&method==='POST'){await rateLimit('ai:'+ownerId,100,3600000);return gradeAttempt(ownerId,id)}
     if(path[2]==='rating'&&method==='POST')return rateAttempt(ownerId,id,z.object({rating}).strict().parse(await json(request)).rating);
     if(path[2]==='correction'&&method==='POST'){const input=z.object({score:z.number().min(0).max(100),reason:z.string().trim().min(1).max(1500)}).strict().parse(await json(request));return correctAttempt(ownerId,id,input.score,input.reason)}
     if(path[2]==='reference'&&method==='GET'){assert(attempt.assessment,422,'完成作答与评分后才能查看参考答案');const [question]=await db.select().from(questions).where(and(eq(questions.id,attempt.questionId),eq(questions.ownerId,ownerId)));return question}
-    if(path[2]==='remedy'&&method==='POST'){await rateLimit('ai:'+ownerId,100,3600000);return safeQuestion(await remedy(ownerId,id))}
+    if(path[2]==='recommendations'&&method==='GET'){const result=await remedialRecommendations(ownerId,id);if(result.length)await markAssistance(ownerId,attempt.bookId);return result;}
+    if(path[2]==='remedy'&&method==='POST'){const input=z.object({conceptId:uuid.optional()}).strict().parse(await json(request,true));await rateLimit('ai:'+ownerId,100,3600000);return safeQuestion(await remedy(ownerId,id,input.conceptId))}
   }
   if(action==='review-history'&&method==='GET')return db.select().from(reviewLogs).where(eq(reviewLogs.ownerId,ownerId)).orderBy(desc(reviewLogs.createdAt)).limit(100);
   if(action==='conversations'&&method==='GET'){const bookId=uuid.parse(url.searchParams.get('bookId'));await ownedBook(ownerId,bookId);return db.select().from(conversations).where(and(eq(conversations.ownerId,ownerId),eq(conversations.bookId,bookId))).orderBy(desc(conversations.createdAt));}
