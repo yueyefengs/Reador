@@ -7,7 +7,7 @@ import { users,agents,books,chapters,sources,progress,jobs,artifacts,questions,r
 import { currentUser,createSession,logout,verifyOrigin,rateLimit } from '../../../lib/auth';
 import { hashPassword,verifyPassword,encrypt } from '../../../lib/security';
 import { assert,AppError } from '../../../lib/errors';
-import { upload,ownedBook,getSources,queueStructure } from '../../../modules/books/service';
+import { upload,ownedBook,deleteBook,getSources,queueStructure } from '../../../modules/books/service';
 import { batchSources } from '../../../modules/books/batches';
 import { presets,agentInput,validateBase,callModel } from '../../../modules/ai/provider';
 import { environmentModels,environmentAgent } from '../../../modules/ai/environment';
@@ -72,6 +72,7 @@ async function handle(request:Request,{params}:{params:Promise<{path:string[]}>}
   if(path[0]==='sources'&&path[1]&&method==='GET'){const [source]=await db.select().from(sources).where(and(eq(sources.id,uuid.parse(path[1])),eq(sources.ownerId,ownerId)));assert(source,404,'原文片段不存在');await markAssistance(ownerId,source.bookId);return source;}
   if(path[0]==='books'&&path[1]){
     const bookId=uuid.parse(path[1]),book=await ownedBook(ownerId,bookId);
+    if(path.length===2&&method==='DELETE'){await deleteBook(ownerId,bookId);return {ok:true};}
     if(path[2]==='concepts'&&path.length===3&&method==='GET'){await markAssistance(ownerId,bookId);return bookKnowledge(ownerId,bookId)}
     if(path.length===2&&method==='GET'){
       const catalog=await db.select().from(chapters).where(and(eq(chapters.ownerId,ownerId),eq(chapters.bookId,bookId),eq(chapters.active,true))).orderBy(asc(chapters.position));

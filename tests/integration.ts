@@ -215,6 +215,13 @@ try{
   browser.stdin.end(await readFile('tests/browser-knowledge.py','utf8'));
   const code=await new Promise<number|null>((resolve,reject)=>{browser.once('exit',resolve);browser.once('error',reject)});check(code===0,'隔离浏览器知识点与补救界面检查');
  }
+ const bookStoragePath=storedBook.storagePath;
+ await a.req('books/'+book.id,'DELETE');
+ check(!(await db.select().from(books).where(eq(books.id,book.id))).length,'删除书籍及其数据库记录');
+ check(!(await db.select().from(sources).where(eq(sources.bookId,book.id))).length&&!((await db.select().from(conversations).where(eq(conversations.bookId,book.id))).length),'删除原文与会话资源');
+ check(!(await db.select().from(reviewCards).where(eq(reviewCards.bookId,book.id))).length&&!(await db.select().from(attempts).where(eq(attempts.bookId,book.id))).length,'删除复习卡与作答记录');
+ check(!(await db.select().from(concepts).where(eq(concepts.bookId,book.id))).length&&!(await db.select().from(jobs).where(eq(jobs.bookId,book.id))).length,'删除图谱与后台任务');
+ await a.req('books/'+book.id,'GET',undefined,404);await b.req('books/'+book.id,'DELETE',undefined,404);await assert.rejects(readFile(uploadDir+'/'+bookStoragePath));
  console.log(`PostgreSQL 集成验证通过：${checks} 项检查；${calls} 次本地协议模拟调用。未验证真实模型质量。`);
 }catch(error){console.error(error);console.error(output.slice(-3500));process.exitCode=1}finally{
  app.kill('SIGTERM');mock.close();

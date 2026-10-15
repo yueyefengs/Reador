@@ -51,8 +51,8 @@ export async function readStoredFile(reference:string){
     return openFile(Buffer.concat(chunks),reference);
   }catch(error){if(error instanceof AppError)throw error;throw new AppError(502,'七牛文件下载连接失败，请稍后重试')}
 }
-// 只用于撤回本次尚未成功入库的对象；不清理已保存的书籍或学习记录。
+// 删除原始对象时允许对象已经不存在，便于删除操作安全重试。
 export async function deleteStoredFile(reference:string){
-  if(!reference.startsWith('qiniu://'))return unlink(storagePath(reference));
+  if(!reference.startsWith('qiniu://')){try{await unlink(storagePath(reference))}catch(error){if((error as {code?:string}).code!=='ENOENT')throw error}return}
   const config=sameBucket(reference);try{const result=await config.manager.delete(config.bucket,config.key);assert(result.ok()||result.resp.statusCode===612,502,'七牛临时文件清理失败')}catch(error){if(error instanceof AppError)throw error;throw new AppError(502,'七牛临时文件清理连接失败')}
 }

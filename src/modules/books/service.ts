@@ -1,11 +1,41 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and,eq,asc,inArray } from 'drizzle-orm';
+import { and,eq,asc,inArray,sql } from 'drizzle-orm';
 import { db } from '../../lib/db';
 import { books, chapters, sources, jobs } from '../../lib/schema';
 import { assert } from '../../lib/errors';
 import { chapterScope,STRUCTURE_VERSION } from './structure';
 import { writeStoredFile,deleteStoredFile } from '../../lib/storage';
 export async function ownedBook(ownerId:string,bookId:string){const [book]=await db.select().from(books).where(and(eq(books.id,bookId),eq(books.ownerId,ownerId)));assert(book,404,'书籍不存在');return book}
+
+/** 删除当前账号拥有的整本书及其所有学习数据，并同步清理原始存储对象。 */
+export async function deleteBook(ownerId:string,bookId:string){
+  await db.transaction(async tx=>{
+    // 在删除对象前锁定书籍，避免后台任务在删除过程中继续写入。
+    const rows=await tx.execute(sql`select storage_path from books where id=${bookId} and owner_id=${ownerId} for update`);
+    const book=rows[0] as {storage_path?:string}|undefined;
+    assert(book?.storage_path,404,'书籍不存在');
+    await deleteStoredFile(book.storage_path);
+
+    // 部分历史外键是 RESTRICT，为避免级联顺序依赖，这里显式清理所有书籍子记录。
+    await tx.execute(sql`delete from review_logs where owner_id=${ownerId} and book_id=${bookId}`);
+    // 题目的补救关系指向 attempts，先解除后才能删除作答记录。
+    await tx.execute(sql`update questions set remedy_of=null where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from attempts where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from review_cards where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from concept_origins where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from concept_dependencies where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from questions where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from concepts where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from artifacts where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from jobs where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from progress where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from conversations where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from sources where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from chapters where owner_id=${ownerId} and book_id=${bookId}`);
+    await tx.execute(sql`delete from books where id=${bookId} and owner_id=${ownerId}`);
+  });
+}
+
 export async function upload(ownerId:string,file:File){
   assert(file.size>0&&file.size<=50*1024*1024,422,'请选择不超过 50 MB 的非空文件');
   const format=file.name.toLowerCase().endsWith('.pdf')?'PDF':file.name.toLowerCase().endsWith('.epub')?'EPUB':null;assert(format,422,'仅支持 PDF 和 EPUB');
